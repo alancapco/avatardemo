@@ -1,0 +1,153 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import {
+  LiveAvatarApiError,
+  LiveAvatarServer,
+  type AvatarPersona,
+} from "@/lib/liveavatar/server";
+import { getInterview } from "@/lib/store/repositories";
+
+const bodySchema = z.object({
+  /** Interview-scoped session (uses interview LiveAvatar context). */
+  interviewId: z.string().min(1).optional(),
+  /** Demo studio session (uses LIVEAVATAR_CONTEXT_ID from env). */
+  mode: z.enum(["demo", "interview", "rpq"]).optional(),
+});
+
+export async function POST(request: Request) {
+  const apiKey = process.env.LIVEAVATAR_API_KEY?.trim();
+  const avatarId = process.env.LIVEAVATAR_AVATAR_ID?.trim();
+  const demoContextId = process.env.LIVEAVATAR_CONTEXT_ID?.trim();
+  const rpqContextId = process.env.LIVEAVATAR_RPQ_CONTEXT_ID?.trim();
+  const voiceId = process.env.LIVEAVATAR_VOICE_ID?.trim();
+  const language = process.env.LIVEAVATAR_LANGUAGE?.trim() || "en";
+  const isSandbox = process.env.LIVEAVATAR_SANDBOX === "true";
+  const llmConfigurationId =
+    process.env.LIVEAVATAR_LLM_CONFIGURATION_ID?.trim();
+
+  if (!apiKey || !avatarId) {
+    return NextResponse.json(
+      {
+        error:
+          "LiveAvatar is not fully configured. Add LIVEAVATAR_API_KEY and LIVEAVATAR_AVATAR_ID.",
+        code: "CONFIG_INCOMPLETE",
+      },
+      { status: 503 },
+    );
+  }
+
+  try {
+    const raw = await request.json().catch(() => ({}));
+    const body = bodySchema.parse(raw);
+    const isRpq = body.mode === "rpq";
+    const isDemo = !isRpq && (body.mode === "demo" || !body.interviewId);
+
+    let contextId: string | undefined;
+    let interviewMeta:
+      | { id: string; name: string; estimatedDurationMin: number }
+      | undefined;
+
+    if (isRpq) {
+      if (!rpqContextId) {
+        return NextResponse.json(
+          {
+            error:
+              "LIVEAVATAR_RPQ_CONTEXT_ID is missing. Run npm run liveavatar:setup-rpq.",
+            code: "CONFIG_INCOMPLETE",
+          },
+          { status: 503 },
+        );
+      }
+      contextId = rpqContextId;
+    } else if (isDemo) {
+      if (!demoContextId) {
+        return NextResponse.json(
+          {
+            error:
+              "LIVEAVATAR_CONTEXT_ID is missing. Run npm run liveavatar:setup.",
+            code: "CONFIG_INCOMPLETE",
+          },
+          { status: 503 },
+        );
+      }
+      contextId = demoContextId;
+    } else {
+      const interview = await getInterview(body.interviewId!);
+      if (!interview) {
+        return NextResponse.json(
+          { error: "Interview not found." },
+          { status: 404 },
+        );
+      }
+      if (!interview.liveAvatarContextId) {
+        return NextResponse.json(
+          {
+            error: "This interview has no LiveAvatar context. Recreate it.",
+            code: "CONTEXT_MISSING",
+          },
+          { status: 422 },
+        );
+      }
+      contextId = interview.liveAvatarContextId;
+      interviewMeta = {
+        id: interview.id,
+        name: interview.name,
+        estimatedDurationMin: interview.estimatedDurationMin,
+      };
+    }
+
+    const avatarPersona: AvatarPersona = {
+      context_id: contextId,
+      language,
+    };
+    if (voiceId) avatarPersona.voice_id = voiceId;
+
+    const client = new LiveAvatarServer(apiKey);
+    const session = await client.createSessionToken({
+      avatarId,
+      avatarPersona,
+      isSandbox,
+      llmConfigurationId,
+    });
+
+    return NextResponse.json({
+      sessionToken: session.session_token,
+      sessionId: session.session_id,
+      customLlmEnabled: Boolean(llmConfigurationId),
+      mode: isRpq ? "rpq" : isDemo ? "demo" : "interview",
+      ...(interviewMeta && { interview: interviewMeta }),
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: "Invalid session request.", details: error.flatten() },
+        { status: 400 },
+      );
+    }
+    if (error instanceof LiveAvatarApiError) {
+      const isLegacyKey = error.status === 401;
+      return NextResponse.json(
+        {
+          error: isLegacyKey
+            ? "This key is not accepted by LiveAvatar. HeyGen Streaming Avatar keys must be replaced with a key from app.liveavatar.com."
+            : error.message,
+          code: isLegacyKey
+            ? "LIVEAVATAR_KEY_REQUIRED"
+            : error.code || "SESSION_TOKEN_FAILED",
+        },
+        { status: error.status },
+      );
+    }
+
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unable to reach the LiveAvatar API.",
+        code: "LIVEAVATAR_UNREACHABLE",
+      },
+      { status: 502 },
+    );
+  }
+}

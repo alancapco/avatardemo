@@ -1,0 +1,34 @@
+{
+  "name": "capco-ai-voice-interviews",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "liveavatar:setup": "node scripts/setup-liveavatar.mjs",
+    "liveavatar:setup-llm": "node scripts/setup-liveavatar-llm.mjs",
+    "liveavatar:setup-rpq": "node scripts/setup-liveavatar-rpq.mjs"
+  },
+  "dependencies": {
+    "@heygen/liveavatar-web-sdk": "0.0.18",
+    "nanoid": "^6.0.0",
+    "next": "16.2.10",
+    "openai": "^6.48.0",
+    "pdf-parse": "^2.4.5",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "recharts": "^3.9.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.3",
+    "@types/pdf-parse": "^1.1.5",
+    "@types/react": "19.1.0",
+    "@types/react-dom": "19.1.1",
+    "typescript": "5.8.2",
+    "vitest": "^4.1.10"
+  }
+}

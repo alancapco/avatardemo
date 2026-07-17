@@ -1,0 +1,23 @@
+.next/
+node_modules/
+*.tsbuildinfo
+.env*
+!.env.example
+
+# Locally persisted interview, response, and RPQ assessment data
+data/*
+!data/.gitkeep
+
+# Logs, test artifacts, editor and operating-system files
+*.log
+coverage/
+test-results/
+.DS_Store
+
+# Credentials and certificate material
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+service-account*.json
