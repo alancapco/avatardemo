@@ -88,18 +88,6 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
   }, [transcript]);
 
   useEffect(() => {
-    segmentIndexRef.current = segmentIndex;
-  }, [segmentIndex]);
-
-  useEffect(() => {
-    segmentCountRef.current = segmentCount;
-  }, [segmentCount]);
-
-  useEffect(() => {
-    isSandboxRef.current = isSandbox;
-  }, [isSandbox]);
-
-  useEffect(() => {
     fetch(`/api/interviews/${interviewId}`)
       .then(async (res) => {
         const data = (await res.json()) as {
@@ -224,32 +212,30 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
     const index = segmentIndexRef.current;
     const count = segmentCountRef.current;
     if (sandbox && index + 1 < count) {
-      setSegmentIndex(index + 1);
+      const next = index + 1;
+      segmentIndexRef.current = next;
+      setSegmentIndex(next);
       setPhase("segment-break");
       return;
     }
     void submitResponse();
   }, [resetRuntime, submitResponse]);
 
-  const stopSession = useCallback(
-    async (submit: boolean) => {
-      endingIntentionallyRef.current = true;
-      const session = sessionRef.current;
-      if (session) {
-        try {
-          session.voiceChat.stop();
-          await session.stop();
-        } catch {
-          // ignore stop errors
-        }
+  const stopSession = useCallback(async () => {
+    endingIntentionallyRef.current = true;
+    const session = sessionRef.current;
+    if (session) {
+      try {
+        session.voiceChat.stop();
+        await session.stop();
+      } catch {
+        // ignore stop errors
       }
-      resetRuntime();
-      setSessionState(SessionState.INACTIVE);
-      if (submit) await submitResponse();
-      else setPhase("done");
-    },
-    [resetRuntime, submitResponse],
-  );
+    }
+    resetRuntime();
+    setSessionState(SessionState.INACTIVE);
+    await submitResponse();
+  }, [resetRuntime, submitResponse]);
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -318,7 +304,6 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
         isSandbox?: boolean;
         segmentIndex?: number;
         segmentCount?: number;
-        questionText?: string;
         error?: string;
       };
 
@@ -345,6 +330,9 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
       });
       sessionRef.current = session;
 
+      const sandbox = isSandboxRef.current;
+      const hasMoreSegments = index + 1 < segmentCountRef.current;
+
       session.on(SessionEvent.SESSION_STATE_CHANGED, setSessionState);
       session.on(
         SessionEvent.SESSION_CONNECTION_QUALITY_CHANGED,
@@ -360,16 +348,20 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
             "The avatar is live, but microphone access was blocked. You can still use text prompts.",
           );
         }
-        if (isSandboxRef.current) {
+        if (sandbox) {
           clearWrapTimer();
           wrapTimerRef.current = setTimeout(() => {
             appendTranscript(
               "system",
-              "We may need a short pause soon to continue with the next question…",
+              hasMoreSegments
+                ? "We may need a short pause soon to continue with the next question…"
+                : "Please wrap up shortly—this sandbox session is about to end.",
             );
             try {
               session.message(
-                "Please wrap up this question briefly—we will continue after a short pause.",
+                hasMoreSegments
+                  ? "Please wrap up this question briefly—we will continue after a short pause."
+                  : "Please wrap up briefly and thank the candidate; this session is ending.",
               );
             } catch {
               // session may already be closing
@@ -403,13 +395,16 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
         "system",
         result.customLlmEnabled
           ? "LiveAvatar connected with your custom LLM. Speak naturally with the interviewer."
-          : isSandboxRef.current
+          : sandbox
             ? `LiveAvatar connected (question ${index + 1} of ${segmentCountRef.current}). Speak naturally.`
             : "LiveAvatar connected. Speak naturally with the interviewer.",
       );
-      keepAliveRef.current = setInterval(() => {
-        void session.keepAlive();
-      }, 120_000);
+      // Sandbox sessions end around 1 min; keep-alive only matters for longer sessions.
+      if (!sandbox) {
+        keepAliveRef.current = setInterval(() => {
+          void session.keepAlive();
+        }, 120_000);
+      }
     } catch (caughtError) {
       resetRuntime();
       setSessionState(SessionState.INACTIVE);
@@ -528,7 +523,7 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
               type="button"
               style={{ marginTop: "0.75rem" }}
               disabled={isSubmitting}
-              onClick={() => stopSession(true)}
+              onClick={() => stopSession()}
             >
               {isSubmitting ? "Submitting…" : "End interview early"}
             </button>
@@ -689,7 +684,7 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
               <button
                 className="round-button danger"
                 type="button"
-                onClick={() => stopSession(true)}
+                onClick={() => stopSession()}
                 disabled={isSubmitting}
               >
                 {isSubmitting ? "Submitting…" : "End interview"}

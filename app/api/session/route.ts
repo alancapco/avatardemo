@@ -52,11 +52,7 @@ export async function POST(request: Request) {
       | { id: string; name: string; estimatedDurationMin: number }
       | undefined;
     let segmentMeta:
-      | {
-          segmentIndex: number;
-          segmentCount: number;
-          questionText: string;
-        }
+      | { segmentIndex: number; segmentCount: number }
       | undefined;
 
     const client = new LiveAvatarServer(apiKey);
@@ -132,11 +128,7 @@ export async function POST(request: Request) {
         });
         const context = await client.createContext(segmentContext);
         contextId = context.id;
-        segmentMeta = {
-          segmentIndex,
-          segmentCount,
-          questionText: question.text,
-        };
+        segmentMeta = { segmentIndex, segmentCount };
       } else {
         if (!interview.liveAvatarContextId) {
           return NextResponse.json(
@@ -171,7 +163,7 @@ export async function POST(request: Request) {
       isSandbox,
       mode: isRpq ? "rpq" : isDemo ? "demo" : "interview",
       ...(interviewMeta && { interview: interviewMeta }),
-      ...(segmentMeta && segmentMeta),
+      ...(segmentMeta ?? {}),
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

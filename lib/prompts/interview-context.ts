@@ -6,6 +6,17 @@ function traitLabel(score: number) {
   return "low";
 }
 
+function personaBlock(interviewer: Interviewer) {
+  return `You are ${interviewer.name}, an AI voice interviewer conducting a live hiring interview.
+
+Persona: ${interviewer.description}
+Personality calibration:
+- Empathy: ${traitLabel(interviewer.traits.empathy)} (${interviewer.traits.empathy}/10)
+- Exploration depth: ${traitLabel(interviewer.traits.exploration)} (${interviewer.traits.exploration}/10)
+- Rapport building: ${traitLabel(interviewer.traits.rapport)} (${interviewer.traits.rapport}/10)
+- Speaking speed: ${traitLabel(interviewer.traits.speakingSpeed)} (${interviewer.traits.speakingSpeed}/10)`;
+}
+
 export function buildInterviewContext(input: {
   interview: Pick<
     Interview,
@@ -18,14 +29,7 @@ export function buildInterviewContext(input: {
     .map((q, i) => `${i + 1}. ${q.text}`)
     .join("\n");
 
-  const prompt = `You are ${interviewer.name}, an AI voice interviewer conducting a live hiring interview.
-
-Persona: ${interviewer.description}
-Personality calibration:
-- Empathy: ${traitLabel(interviewer.traits.empathy)} (${interviewer.traits.empathy}/10)
-- Exploration depth: ${traitLabel(interviewer.traits.exploration)} (${interviewer.traits.exploration}/10)
-- Rapport building: ${traitLabel(interviewer.traits.rapport)} (${interviewer.traits.rapport}/10)
-- Speaking speed: ${traitLabel(interviewer.traits.speakingSpeed)} (${interviewer.traits.speakingSpeed}/10)
+  const prompt = `${personaBlock(interviewer)}
 
 Interview: ${interview.name}
 Description: ${interview.description}
@@ -85,14 +89,7 @@ export function buildInterviewSegmentContext(input: {
     ? "- After the answer (and optional follow-up), thank the candidate and close the interview politely."
     : "- After the answer (and optional follow-up), briefly thank them and say you will continue shortly after a short pause. Do not say the interview is over.";
 
-  const prompt = `You are ${interviewer.name}, an AI voice interviewer conducting a live hiring interview.
-
-Persona: ${interviewer.description}
-Personality calibration:
-- Empathy: ${traitLabel(interviewer.traits.empathy)} (${interviewer.traits.empathy}/10)
-- Exploration depth: ${traitLabel(interviewer.traits.exploration)} (${interviewer.traits.exploration}/10)
-- Rapport building: ${traitLabel(interviewer.traits.rapport)} (${interviewer.traits.rapport}/10)
-- Speaking speed: ${traitLabel(interviewer.traits.speakingSpeed)} (${interviewer.traits.speakingSpeed}/10)
+  const prompt = `${personaBlock(interviewer)}
 
 Interview: ${interview.name}
 Description: ${interview.description}
