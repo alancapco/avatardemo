@@ -41,6 +41,8 @@ Open `http://localhost:3000`.
 3. Meet the **video avatar** interviewer (same Capco studio stage as `/studio`)
 4. End interview → transcript saved and analysed
 
+With `LIVEAVATAR_SANDBOX=true`, the lobby warns that short pauses may occur. After each ~1-minute segment the candidate continues to the next question; the full transcript is submitted only when the interview finishes (or they end early).
+
 Demo the original avatar anytime at `/studio`.
 
 ## Risk Profile Questionnaire demo
@@ -100,9 +102,159 @@ Default interviewer personas seed automatically on first read.
 | `lib/liveavatar/server.ts` | Session tokens + per-interview contexts |
 | `lib/prompts/*` | LLM prompt templates |
 | `app/api/*` | REST APIs |
-| `components/interview-call.tsx` | Candidate LiveAvatar session + tab tracking |
+| `components/interview-call.tsx` | Candidate LiveAvatar session + sandbox segments + tab tracking |
 
-On interview create, the API builds a LiveAvatar **context** from the questions + persona and stores `liveAvatarContextId`. Candidate sessions use that context (not the global demo context).
+On interview create, the API builds a LiveAvatar **context** from the questions + persona and stores `liveAvatarContextId`. Candidate sessions use that context (not the global demo context). When `LIVEAVATAR_SANDBOX=true`, each question runs in a short ephemeral context instead (see sandbox segments below).
+
+### System overview
+
+```mermaid
+flowchart TB
+  subgraph recruiters [Recruiter]
+    Dashboard["Dashboard /"]
+    Interviewers["Interviewers"]
+    NewInterview["New interview"]
+    Detail["Interview detail"]
+    Report["Response report"]
+  end
+
+  subgraph candidates [Candidate]
+    Call["/call/interviewId"]
+    Studio["/studio demo"]
+    Rpq["/rpq assessment"]
+  end
+
+  subgraph nextApp [Next.js app]
+    Api["app/api/*"]
+    Store["lib/store JSON files"]
+    Prompts["lib/prompts"]
+    LaServer["lib/liveavatar/server"]
+  end
+
+  subgraph external [External]
+    LiveAvatar["LiveAvatar FULL Mode"]
+    CustomLlm["CUSTOM_LLM API"]
+  end
+
+  Dashboard --> Api
+  Interviewers --> Api
+  NewInterview --> Api
+  Detail --> Api
+  Report --> Api
+  Call --> Api
+  Studio --> Api
+  Rpq --> Api
+
+  Api --> Store
+  Api --> Prompts
+  Api --> LaServer
+  Api --> CustomLlm
+  LaServer --> LiveAvatar
+  Call --> LiveAvatar
+  Studio --> LiveAvatar
+  Rpq --> LiveAvatar
+```
+
+### Components
+
+```mermaid
+flowchart LR
+  subgraph ui [UI components]
+    InterviewCall["interview-call.tsx"]
+    AvatarStudio["avatar-studio.tsx"]
+    RpqAssessment["rpq/rpq-assessment.tsx"]
+    DashboardCmp["dashboard.tsx"]
+    NewInterviewPage["new-interview-page.tsx"]
+  end
+
+  subgraph apis [API routes]
+    SessionApi["POST /api/session"]
+    InterviewsApi["/api/interviews"]
+    ResponsesApi["/api/responses"]
+    GenerateApi["/api/generate-questions"]
+    AnalyzeApi["analysis routes"]
+  end
+
+  subgraph libs [Libraries]
+    InterviewCtx["prompts/interview-context"]
+    LaClient["liveavatar/server"]
+    Repo["store/repositories"]
+    OpenAI["openai/client"]
+  end
+
+  InterviewCall --> SessionApi
+  InterviewCall --> InterviewsApi
+  InterviewCall --> ResponsesApi
+  AvatarStudio --> SessionApi
+  RpqAssessment --> SessionApi
+  NewInterviewPage --> GenerateApi
+  NewInterviewPage --> InterviewsApi
+  DashboardCmp --> InterviewsApi
+
+  SessionApi --> InterviewCtx
+  SessionApi --> LaClient
+  InterviewsApi --> InterviewCtx
+  InterviewsApi --> LaClient
+  InterviewsApi --> Repo
+  ResponsesApi --> Repo
+  ResponsesApi --> AnalyzeApi
+  GenerateApi --> OpenAI
+  AnalyzeApi --> OpenAI
+```
+
+### Data flow — interview create and call
+
+```mermaid
+sequenceDiagram
+  participant Recruiter
+  participant Api as Next API
+  participant Store as JSON store
+  participant LA as LiveAvatar
+  participant Candidate
+  participant Call as InterviewCall
+
+  Recruiter->>Api: POST /api/interviews
+  Api->>Api: buildInterviewContext
+  Api->>LA: createContext
+  Api->>Store: save interview + liveAvatarContextId
+  Api-->>Recruiter: interview + share link
+
+  Candidate->>Call: open /call/interviewId
+  Call->>Api: GET /api/interviews/id
+  Api-->>Call: interview + isSandbox
+
+  alt Sandbox LIVEAVATAR_SANDBOX=true
+    loop One question per ~1 min segment
+      Call->>Api: POST /api/session segmentIndex coveredSummary
+      Api->>Api: buildInterviewSegmentContext
+      Api->>LA: createContext ephemeral
+      Api->>LA: createSessionToken
+      Api-->>Call: sessionToken + segment meta
+      Call->>LA: LiveAvatarSession start
+      Note over Call,LA: SESSION_STOPPED or soft wrap ~50s
+      Call->>Call: segment-break UI if questions remain
+    end
+  else Production
+    Call->>Api: POST /api/session interviewId
+    Api->>LA: createSessionToken with stored context
+    Api-->>Call: sessionToken
+    Call->>LA: single LiveAvatarSession
+  end
+
+  Call->>Api: POST /api/responses transcript
+  Api->>Store: save response
+  Api->>Api: run analysis
+  Api-->>Call: response id
+```
+
+### Sandbox duration segments
+
+Free LiveAvatar sandbox sessions last about **one minute**. Interviews and RPQ split work across short sessions so the platform kill does not discard progress:
+
+- **Interviews**: one primary question per segment; transcript accumulates; continue screen between segments; submit once at the end
+- **RPQ**: three questions per segment (four sessions total)
+- Soft wrap nudge at ~50s; reactive `SESSION_STOPPED` still drives the continue path
+- Non-sandbox (`LIVEAVATAR_SANDBOX=false`) keeps a single uninterrupted session
 
 ## Env
 

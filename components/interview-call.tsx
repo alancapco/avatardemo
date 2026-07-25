@@ -12,7 +12,10 @@ import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import type { Interview, TranscriptItem } from "@/types/interview";
 
-type Phase = "lobby" | "live" | "done";
+type Phase = "lobby" | "live" | "segment-break" | "done";
+
+const SANDBOX_WRAP_MS = 50_000;
+const COVERED_SUMMARY_MAX = 800;
 
 function labelForState(state: SessionState) {
   if (state === SessionState.CONNECTED) return "Live";
@@ -21,23 +24,41 @@ function labelForState(state: SessionState) {
   return "Offline";
 }
 
+function buildCoveredSummary(items: TranscriptItem[]): string {
+  const lines = items
+    .filter((t) => t.speaker === "you" || t.speaker === "avatar")
+    .map((t) => `${t.speaker === "you" ? "Candidate" : "Interviewer"}: ${t.text}`);
+  const joined = lines.join("\n");
+  if (joined.length <= COVERED_SUMMARY_MAX) return joined;
+  return `…${joined.slice(-(COVERED_SUMMARY_MAX - 1))}`;
+}
+
 /**
  * Candidate LiveAvatar interview — same Capco studio shell as the original
  * avatar demo (video avatar + mic + transcript), scoped to an interview context.
+ * Sandbox mode splits into one question per ~1 min session.
  */
 export function InterviewCall({ interviewId }: { interviewId: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const sessionRef = useRef<LiveAvatarSession | null>(null);
   const keepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wrapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const startedAtRef = useRef<number | null>(null);
   const tabSwitchRef = useRef(0);
   const transcriptRef = useRef<TranscriptItem[]>([]);
   const sessionIdRef = useRef<string | undefined>(undefined);
   const submittedRef = useRef(false);
+  const endingIntentionallyRef = useRef(false);
+  const segmentIndexRef = useRef(0);
+  const segmentCountRef = useRef(1);
+  const isSandboxRef = useRef(false);
 
   const [phase, setPhase] = useState<Phase>("lobby");
   const [interview, setInterview] = useState<Interview | null>(null);
+  const [isSandbox, setIsSandbox] = useState(false);
+  const [segmentIndex, setSegmentIndex] = useState(0);
+  const [segmentCount, setSegmentCount] = useState(1);
   const [candidateName, setCandidateName] = useState("");
   const [sessionState, setSessionState] = useState<SessionState>(
     SessionState.INACTIVE,
@@ -67,14 +88,35 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
   }, [transcript]);
 
   useEffect(() => {
+    segmentIndexRef.current = segmentIndex;
+  }, [segmentIndex]);
+
+  useEffect(() => {
+    segmentCountRef.current = segmentCount;
+  }, [segmentCount]);
+
+  useEffect(() => {
+    isSandboxRef.current = isSandbox;
+  }, [isSandbox]);
+
+  useEffect(() => {
     fetch(`/api/interviews/${interviewId}`)
       .then(async (res) => {
         const data = (await res.json()) as {
           interview?: Interview;
+          isSandbox?: boolean;
           error?: string;
         };
         if (!res.ok) throw new Error(data.error || "Interview not found.");
         setInterview(data.interview ?? null);
+        const sandbox = Boolean(data.isSandbox);
+        setIsSandbox(sandbox);
+        isSandboxRef.current = sandbox;
+        if (data.interview) {
+          const count = Math.max(1, data.interview.questions.length);
+          setSegmentCount(count);
+          segmentCountRef.current = count;
+        }
       })
       .catch((caught) =>
         setError(
@@ -108,16 +150,24 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
     [],
   );
 
+  const clearWrapTimer = useCallback(() => {
+    if (wrapTimerRef.current) {
+      clearTimeout(wrapTimerRef.current);
+      wrapTimerRef.current = null;
+    }
+  }, []);
+
   const resetRuntime = useCallback(() => {
     if (keepAliveRef.current) clearInterval(keepAliveRef.current);
     keepAliveRef.current = null;
+    clearWrapTimer();
     sessionRef.current = null;
     setIsStreamReady(false);
     setIsMuted(true);
     setIsUserTalking(false);
     setIsAvatarTalking(false);
     setConnectionQuality(ConnectionQuality.UNKNOWN);
-  }, []);
+  }, [clearWrapTimer]);
 
   const submitResponse = useCallback(async () => {
     if (submittedRef.current || isSubmitting) return;
@@ -163,8 +213,27 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
     }
   }, [candidateName, interviewId, isSubmitting]);
 
+  const handleSessionStopped = useCallback(() => {
+    resetRuntime();
+    setSessionState(SessionState.INACTIVE);
+    if (endingIntentionallyRef.current) {
+      endingIntentionallyRef.current = false;
+      return;
+    }
+    const sandbox = isSandboxRef.current;
+    const index = segmentIndexRef.current;
+    const count = segmentCountRef.current;
+    if (sandbox && index + 1 < count) {
+      setSegmentIndex(index + 1);
+      setPhase("segment-break");
+      return;
+    }
+    void submitResponse();
+  }, [resetRuntime, submitResponse]);
+
   const stopSession = useCallback(
     async (submit: boolean) => {
+      endingIntentionallyRef.current = true;
       const session = sessionRef.current;
       if (session) {
         try {
@@ -189,42 +258,85 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
   useEffect(() => {
     return () => {
       if (keepAliveRef.current) clearInterval(keepAliveRef.current);
+      if (wrapTimerRef.current) clearTimeout(wrapTimerRef.current);
       sessionRef.current?.voiceChat.stop();
       void sessionRef.current?.stop();
     };
   }, []);
 
-  const startSession = async () => {
+  const startSession = async (nextSegmentIndex?: number) => {
     if (isStarting || sessionRef.current) return;
+    const index = nextSegmentIndex ?? segmentIndex;
     setIsStarting(true);
     setError(null);
-    setTranscript([
-      {
-        id: "welcome",
-        speaker: "system",
-        text: "Connecting your LiveAvatar interviewer…",
-      },
-    ]);
-    tabSwitchRef.current = 0;
-    submittedRef.current = false;
-    startedAtRef.current = Date.now();
+    endingIntentionallyRef.current = false;
+
+    const isContinuation = phase === "segment-break" || index > 0;
+    if (!isContinuation) {
+      setTranscript([
+        {
+          id: "welcome",
+          speaker: "system",
+          text: "Connecting your LiveAvatar interviewer…",
+        },
+      ]);
+      tabSwitchRef.current = 0;
+      submittedRef.current = false;
+      startedAtRef.current = Date.now();
+      setSegmentIndex(0);
+      segmentIndexRef.current = 0;
+    } else {
+      appendTranscript(
+        "system",
+        `Connecting for question ${index + 1} of ${segmentCountRef.current}…`,
+      );
+    }
+
     setPhase("live");
 
     try {
+      const coveredSummary =
+        isContinuation && isSandboxRef.current
+          ? buildCoveredSummary(transcriptRef.current)
+          : undefined;
+
       const response = await fetch("/api/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ interviewId }),
+        body: JSON.stringify({
+          interviewId,
+          ...(isSandboxRef.current && {
+            segmentIndex: index,
+            ...(coveredSummary && { coveredSummary }),
+          }),
+        }),
       });
       const result = (await response.json()) as {
         sessionToken?: string;
         sessionId?: string;
         customLlmEnabled?: boolean;
+        isSandbox?: boolean;
+        segmentIndex?: number;
+        segmentCount?: number;
+        questionText?: string;
         error?: string;
       };
 
       if (!response.ok || !result.sessionToken) {
         throw new Error(result.error || "Could not create a LiveAvatar session.");
+      }
+
+      if (typeof result.isSandbox === "boolean") {
+        setIsSandbox(result.isSandbox);
+        isSandboxRef.current = result.isSandbox;
+      }
+      if (typeof result.segmentCount === "number") {
+        setSegmentCount(result.segmentCount);
+        segmentCountRef.current = result.segmentCount;
+      }
+      if (typeof result.segmentIndex === "number") {
+        setSegmentIndex(result.segmentIndex);
+        segmentIndexRef.current = result.segmentIndex;
       }
 
       sessionIdRef.current = result.sessionId;
@@ -248,6 +360,22 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
             "The avatar is live, but microphone access was blocked. You can still use text prompts.",
           );
         }
+        if (isSandboxRef.current) {
+          clearWrapTimer();
+          wrapTimerRef.current = setTimeout(() => {
+            appendTranscript(
+              "system",
+              "We may need a short pause soon to continue with the next question…",
+            );
+            try {
+              session.message(
+                "Please wrap up this question briefly—we will continue after a short pause.",
+              );
+            } catch {
+              // session may already be closing
+            }
+          }, SANDBOX_WRAP_MS);
+        }
       });
       session.voiceChat.on(VoiceChatEvent.MUTED, () => setIsMuted(true));
       session.voiceChat.on(VoiceChatEvent.UNMUTED, () => setIsMuted(false));
@@ -266,9 +394,8 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
         appendTranscript("avatar", text),
       );
       session.on(AgentEventsEnum.SESSION_STOPPED, () => {
-        resetRuntime();
-        setSessionState(SessionState.INACTIVE);
-        void submitResponse();
+        if (sessionRef.current !== session) return;
+        handleSessionStopped();
       });
 
       await session.start();
@@ -276,7 +403,9 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
         "system",
         result.customLlmEnabled
           ? "LiveAvatar connected with your custom LLM. Speak naturally with the interviewer."
-          : "LiveAvatar connected. Speak naturally with the interviewer.",
+          : isSandboxRef.current
+            ? `LiveAvatar connected (question ${index + 1} of ${segmentCountRef.current}). Speak naturally.`
+            : "LiveAvatar connected. Speak naturally with the interviewer.",
       );
       keepAliveRef.current = setInterval(() => {
         void session.keepAlive();
@@ -284,7 +413,7 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
     } catch (caughtError) {
       resetRuntime();
       setSessionState(SessionState.INACTIVE);
-      setPhase("lobby");
+      setPhase(isContinuation ? "segment-break" : "lobby");
       setError(
         caughtError instanceof Error
           ? caughtError.message
@@ -356,6 +485,63 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
     );
   }
 
+  if (phase === "segment-break") {
+    return (
+      <main className="studio-shell">
+        <header className="masthead">
+          <div className="brand-lockup">
+            <span className="brand-wordmark">Capco</span>
+            <div className="brand-divider" aria-hidden />
+            <div className="brand-copy">
+              <p className="eyebrow">LiveAvatar interview</p>
+              <h1>Wealth &amp; Asset Management</h1>
+            </div>
+          </div>
+        </header>
+        <div className="studio-body">
+          <section className="panel-card lobby-card">
+            <p className="eyebrow">
+              Question {segmentIndex} of {segmentCount} complete
+            </p>
+            <h2>Continue to the next question</h2>
+            <p>
+              Your answers so far are saved in this session. Free LiveAvatar
+              sandbox sessions last about one minute, so the next question starts
+              in a fresh avatar connection.
+            </p>
+            {error && <div className="error-panel">{error}</div>}
+            <button
+              className="primary-button"
+              type="button"
+              disabled={isStarting}
+              onClick={() => startSession(segmentIndex)}
+            >
+              <span>
+                {isStarting
+                  ? "Connecting avatar…"
+                  : `Continue · question ${segmentIndex + 1} of ${segmentCount}`}
+              </span>
+              <b>→</b>
+            </button>
+            <button
+              className="round-button danger"
+              type="button"
+              style={{ marginTop: "0.75rem" }}
+              disabled={isSubmitting}
+              onClick={() => stopSession(true)}
+            >
+              {isSubmitting ? "Submitting…" : "End interview early"}
+            </button>
+          </section>
+        </div>
+        <footer className="footer-note">
+          <span>Capco demo · LiveAvatar interviewer</span>
+          <span>A Wipro Company</span>
+        </footer>
+      </main>
+    );
+  }
+
   if (phase === "lobby") {
     return (
       <main className="studio-shell">
@@ -392,6 +578,11 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
               </li>
               <li>{interview?.questions.length ?? 0} questions</li>
               <li>Camera view of the avatar · microphone required</li>
+              {isSandbox && (
+                <li>
+                  Short pauses between questions may occur (sandbox session limit)
+                </li>
+              )}
             </ul>
             <label>
               Your name
@@ -406,7 +597,7 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
               className="primary-button"
               type="button"
               disabled={!candidateName.trim() || !interview || isStarting}
-              onClick={startSession}
+              onClick={() => startSession(0)}
             >
               <span>
                 {isStarting ? "Connecting avatar…" : "Start LiveAvatar interview"}
@@ -439,6 +630,9 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
           <div className={`live-pill ${isConnected ? "is-live" : ""}`}>
             <span />
             {labelForState(sessionState)}
+            {isSandbox && segmentCount > 1
+              ? ` · Q${segmentIndex + 1}/${segmentCount}`
+              : ""}
           </div>
         </div>
       </header>

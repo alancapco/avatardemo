@@ -5,13 +5,18 @@ import {
   LiveAvatarServer,
   type AvatarPersona,
 } from "@/lib/liveavatar/server";
-import { getInterview } from "@/lib/store/repositories";
+import { buildInterviewSegmentContext } from "@/lib/prompts/interview-context";
+import { getInterview, getInterviewer } from "@/lib/store/repositories";
 
 const bodySchema = z.object({
   /** Interview-scoped session (uses interview LiveAvatar context). */
   interviewId: z.string().min(1).optional(),
   /** Demo studio session (uses LIVEAVATAR_CONTEXT_ID from env). */
   mode: z.enum(["demo", "interview", "rpq"]).optional(),
+  /** Sandbox interview: 0-based question segment index. */
+  segmentIndex: z.number().int().nonnegative().optional(),
+  /** Brief prior Q&A for continuity across sandbox segments. */
+  coveredSummary: z.string().max(1200).optional(),
 });
 
 export async function POST(request: Request) {
@@ -46,6 +51,15 @@ export async function POST(request: Request) {
     let interviewMeta:
       | { id: string; name: string; estimatedDurationMin: number }
       | undefined;
+    let segmentMeta:
+      | {
+          segmentIndex: number;
+          segmentCount: number;
+          questionText: string;
+        }
+      | undefined;
+
+    const client = new LiveAvatarServer(apiKey);
 
     if (isRpq) {
       if (!rpqContextId) {
@@ -79,21 +93,62 @@ export async function POST(request: Request) {
           { status: 404 },
         );
       }
-      if (!interview.liveAvatarContextId) {
-        return NextResponse.json(
-          {
-            error: "This interview has no LiveAvatar context. Recreate it.",
-            code: "CONTEXT_MISSING",
-          },
-          { status: 422 },
-        );
-      }
-      contextId = interview.liveAvatarContextId;
+
       interviewMeta = {
         id: interview.id,
         name: interview.name,
         estimatedDurationMin: interview.estimatedDurationMin,
       };
+
+      if (isSandbox) {
+        const segmentIndex = body.segmentIndex ?? 0;
+        const segmentCount = interview.questions.length;
+        if (segmentIndex >= segmentCount) {
+          return NextResponse.json(
+            {
+              error: "Segment index is out of range for this interview.",
+              code: "SEGMENT_OUT_OF_RANGE",
+            },
+            { status: 400 },
+          );
+        }
+
+        const interviewer = await getInterviewer(interview.interviewerId);
+        if (!interviewer) {
+          return NextResponse.json(
+            { error: "Interviewer for this interview was not found." },
+            { status: 422 },
+          );
+        }
+
+        const question = interview.questions[segmentIndex];
+        const segmentContext = buildInterviewSegmentContext({
+          interview,
+          interviewer,
+          questionText: question.text,
+          segmentIndex,
+          segmentCount,
+          coveredSummary: body.coveredSummary,
+        });
+        const context = await client.createContext(segmentContext);
+        contextId = context.id;
+        segmentMeta = {
+          segmentIndex,
+          segmentCount,
+          questionText: question.text,
+        };
+      } else {
+        if (!interview.liveAvatarContextId) {
+          return NextResponse.json(
+            {
+              error: "This interview has no LiveAvatar context. Recreate it.",
+              code: "CONTEXT_MISSING",
+            },
+            { status: 422 },
+          );
+        }
+        contextId = interview.liveAvatarContextId;
+      }
     }
 
     const avatarPersona: AvatarPersona = {
@@ -102,7 +157,6 @@ export async function POST(request: Request) {
     };
     if (voiceId) avatarPersona.voice_id = voiceId;
 
-    const client = new LiveAvatarServer(apiKey);
     const session = await client.createSessionToken({
       avatarId,
       avatarPersona,
@@ -114,8 +168,10 @@ export async function POST(request: Request) {
       sessionToken: session.session_token,
       sessionId: session.session_id,
       customLlmEnabled: Boolean(llmConfigurationId),
+      isSandbox,
       mode: isRpq ? "rpq" : isDemo ? "demo" : "interview",
       ...(interviewMeta && { interview: interviewMeta }),
+      ...(segmentMeta && segmentMeta),
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

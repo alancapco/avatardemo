@@ -20,7 +20,9 @@ export async function GET(_request: Request, { params }: Params) {
     listResponses(id),
   ]);
 
-  return NextResponse.json({ interview, interviewer, responses });
+  const isSandbox = process.env.LIVEAVATAR_SANDBOX === "true";
+
+  return NextResponse.json({ interview, interviewer, responses, isSandbox });
 }
 
 export async function DELETE(_request: Request, { params }: Params) {
