@@ -149,11 +149,25 @@ export async function POST(request: Request) {
     };
     if (voiceId) avatarPersona.voice_id = voiceId;
 
+    console.log("[Session API] Creating session token with:", {
+      avatarId,
+      contextId,
+      isSandbox,
+      hasLlmConfig: !!llmConfigurationId,
+      mode: isRpq ? "rpq" : isDemo ? "demo" : "interview",
+    });
+
     const session = await client.createSessionToken({
       avatarId,
       avatarPersona,
       isSandbox,
       llmConfigurationId,
+    });
+
+    console.log("[Session API] Session created:", {
+      hasToken: !!session.session_token,
+      sessionId: session.session_id,
+      tokenLength: session.session_token?.length,
     });
 
     return NextResponse.json({
@@ -166,6 +180,7 @@ export async function POST(request: Request) {
       ...(segmentMeta ?? {}),
     });
   } catch (error) {
+    console.error("[Session API] Error:", error);
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: "Invalid session request.", details: error.flatten() },
@@ -173,6 +188,11 @@ export async function POST(request: Request) {
       );
     }
     if (error instanceof LiveAvatarApiError) {
+      console.error("[Session API] LiveAvatar API error:", {
+        status: error.status,
+        code: error.code,
+        message: error.message,
+      });
       const isLegacyKey = error.status === 401;
       return NextResponse.json(
         {

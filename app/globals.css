@@ -1248,10 +1248,153 @@ button {
   margin-bottom: 6px;
 }
 
+/* —— Coach v2 (Tavus) —— */
+
+.coach-setup-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.coach-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--capco-charcoal);
+  font-size: 0.92rem;
+}
+
+.coach-field select,
+.coach-field textarea {
+  width: 100%;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  color: var(--capco-ink);
+  background: #fff;
+  resize: vertical;
+}
+
+.coach-fieldset {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.coach-fieldset legend {
+  padding: 0 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--capco-slate);
+}
+
+.coach-radio {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+  cursor: pointer;
+}
+
+.coach-radio strong {
+  display: block;
+  color: var(--capco-ink);
+}
+
+.coach-radio small {
+  display: block;
+  margin-top: 4px;
+  color: var(--capco-slate);
+  line-height: 1.4;
+}
+
+.coach-iframe-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  min-height: 420px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #0b1220;
+}
+
+.coach-iframe-wrap iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.coach-call-card .control-deck {
+  margin-top: 14px;
+}
+
+.coach-feedback {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.coach-score {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.coach-score strong {
+  font-size: 2.4rem;
+  line-height: 1;
+  color: var(--capco-ink);
+}
+
+.coach-summary {
+  margin: 0;
+  color: var(--capco-charcoal);
+  line-height: 1.5;
+}
+
+.coach-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.coach-columns h3,
+.coach-note h3 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+
+.coach-columns ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--capco-charcoal);
+}
+
+.coach-columns li + li {
+  margin-top: 6px;
+}
+
+.coach-note p {
+  margin: 0;
+  color: var(--capco-charcoal);
+  line-height: 1.45;
+}
+
+.coach-empty-feedback {
+  position: relative;
+  min-height: 180px;
+}
+
 @media (max-width: 980px) {
   .stat-grid,
   .two-col,
-  .two-col.tight {
+  .two-col.tight,
+  .coach-columns {
     grid-template-columns: 1fr;
   }
 }

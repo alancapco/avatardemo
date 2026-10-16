@@ -107,6 +107,7 @@ export function AvatarStudio() {
     setTranscript(initialTranscript);
 
     try {
+      console.log("Fetching session token...");
       const response = await fetch("/api/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -118,16 +119,23 @@ export function AvatarStudio() {
         error?: string;
       };
 
+      console.log("Session token response:", { ok: response.ok, hasToken: !!result.sessionToken, error: result.error });
+
       if (!response.ok || !result.sessionToken) {
         throw new Error(result.error || "Could not create a LiveAvatar session.");
       }
+
+      console.log("Creating LiveAvatar session with token:", result.sessionToken?.substring(0, 20) + "...");
 
       const session = new LiveAvatarSession(result.sessionToken, {
         voiceChat: true,
       });
       sessionRef.current = session;
 
-      session.on(SessionEvent.SESSION_STATE_CHANGED, setSessionState);
+      session.on(SessionEvent.SESSION_STATE_CHANGED, (state) => {
+        console.log("Session state changed:", state);
+        setSessionState(state);
+      });
       session.on(
         SessionEvent.SESSION_CONNECTION_QUALITY_CHANGED,
         setConnectionQuality,
@@ -168,7 +176,9 @@ export function AvatarStudio() {
         setSessionState(SessionState.INACTIVE);
       });
 
+      console.log("Starting session...");
       await session.start();
+      console.log("Session started successfully");
       if (result.customLlmEnabled) {
         appendTranscript(
           "system",
@@ -179,6 +189,7 @@ export function AvatarStudio() {
         void session.keepAlive();
       }, 120_000);
     } catch (caughtError) {
+      console.error("Session start error:", caughtError);
       resetRuntime();
       setSessionState(SessionState.INACTIVE);
       setError(

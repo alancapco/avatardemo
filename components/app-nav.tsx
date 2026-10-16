@@ -5,6 +5,7 @@ const links = [
   { href: "/interviews/new", label: "New interview" },
   { href: "/interviewers", label: "Interviewers" },
   { href: "/studio", label: "Avatar studio" },
+  { href: "/coachv2", label: "Coach v2" },
   { href: "/rpq", label: "RPQ demo" },
 ];
 

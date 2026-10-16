@@ -12,7 +12,7 @@ import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import type { Interview, TranscriptItem } from "@/types/interview";
 
-type Phase = "lobby" | "live" | "segment-break" | "done";
+type Phase = "lobby" | "live" | "done";
 
 const SANDBOX_WRAP_MS = 50_000;
 const COVERED_SUMMARY_MAX = 800;
@@ -215,11 +215,18 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
       const next = index + 1;
       segmentIndexRef.current = next;
       setSegmentIndex(next);
-      setPhase("segment-break");
+      // Auto-continue after brief pause instead of waiting for user
+      appendTranscript(
+        "system",
+        `Question ${index + 1} complete. Starting question ${next + 1} in a moment...`,
+      );
+      setTimeout(() => {
+        void startSession(next);
+      }, 1500); // 1.5 second pause between questions
       return;
     }
     void submitResponse();
-  }, [resetRuntime, submitResponse]);
+  }, [resetRuntime, submitResponse, appendTranscript]);
 
   const stopSession = useCallback(async () => {
     endingIntentionallyRef.current = true;
@@ -257,7 +264,7 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
     setError(null);
     endingIntentionallyRef.current = false;
 
-    const isContinuation = phase === "segment-break" || index > 0;
+    const isContinuation = index > 0;
     if (!isContinuation) {
       setTranscript([
         {
@@ -408,7 +415,7 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
     } catch (caughtError) {
       resetRuntime();
       setSessionState(SessionState.INACTIVE);
-      setPhase(isContinuation ? "segment-break" : "lobby");
+      setPhase(isContinuation ? "live" : "lobby");
       setError(
         caughtError instanceof Error
           ? caughtError.message
@@ -474,63 +481,6 @@ export function InterviewCall({ interviewId }: { interviewId: string }) {
         </div>
         <footer className="footer-note">
           <span>Capco · LiveAvatar interview</span>
-          <span>A Wipro Company</span>
-        </footer>
-      </main>
-    );
-  }
-
-  if (phase === "segment-break") {
-    return (
-      <main className="studio-shell">
-        <header className="masthead">
-          <div className="brand-lockup">
-            <span className="brand-wordmark">Capco</span>
-            <div className="brand-divider" aria-hidden />
-            <div className="brand-copy">
-              <p className="eyebrow">LiveAvatar interview</p>
-              <h1>Wealth &amp; Asset Management</h1>
-            </div>
-          </div>
-        </header>
-        <div className="studio-body">
-          <section className="panel-card lobby-card">
-            <p className="eyebrow">
-              Question {segmentIndex} of {segmentCount} complete
-            </p>
-            <h2>Continue to the next question</h2>
-            <p>
-              Your answers so far are saved in this session. Free LiveAvatar
-              sandbox sessions last about one minute, so the next question starts
-              in a fresh avatar connection.
-            </p>
-            {error && <div className="error-panel">{error}</div>}
-            <button
-              className="primary-button"
-              type="button"
-              disabled={isStarting}
-              onClick={() => startSession(segmentIndex)}
-            >
-              <span>
-                {isStarting
-                  ? "Connecting avatar…"
-                  : `Continue · question ${segmentIndex + 1} of ${segmentCount}`}
-              </span>
-              <b>→</b>
-            </button>
-            <button
-              className="round-button danger"
-              type="button"
-              style={{ marginTop: "0.75rem" }}
-              disabled={isSubmitting}
-              onClick={() => stopSession()}
-            >
-              {isSubmitting ? "Submitting…" : "End interview early"}
-            </button>
-          </section>
-        </div>
-        <footer className="footer-note">
-          <span>Capco demo · LiveAvatar interviewer</span>
           <span>A Wipro Company</span>
         </footer>
       </main>

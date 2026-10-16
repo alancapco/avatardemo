@@ -61,7 +61,10 @@ export class LiveAvatarServer {
   ) {}
 
   private async request<T>(path: string, init: RequestInit = {}) {
-    const response = await fetch(`${this.apiUrl}${path}`, {
+    const url = `${this.apiUrl}${path}`;
+    console.log(`[LiveAvatar Client] ${init.method || 'GET'} ${url}`);
+
+    const response = await fetch(url, {
       ...init,
       headers: {
         "Content-Type": "application/json",
@@ -72,6 +75,8 @@ export class LiveAvatarServer {
     });
     const body = (await response.json().catch(() => ({}))) as ApiEnvelope<T> &
       ApiErrorBody;
+
+    console.log(`[LiveAvatar Client] Response ${response.status}:`, JSON.stringify(body, null, 2));
 
     if (!response.ok) {
       const apiCode =
@@ -87,21 +92,22 @@ export class LiveAvatarServer {
   }
 
   createSessionToken(input: SessionTokenInput) {
+    const payload = {
+      avatar_id: input.avatarId,
+      avatar_persona: input.avatarPersona,
+      is_sandbox: input.isSandbox ?? false,
+      video_settings: {
+        quality: "high",
+        encoding: "H264",
+      },
+      ...(input.llmConfigurationId && {
+        llm_configuration_id: input.llmConfigurationId,
+      }),
+    };
+    console.log("[LiveAvatar Client] Creating session token with payload:", JSON.stringify(payload, null, 2));
     return this.request<SessionTokenResult>("/v1/sessions/token", {
       method: "POST",
-      body: JSON.stringify({
-        mode: "FULL",
-        avatar_id: input.avatarId,
-        avatar_persona: input.avatarPersona,
-        is_sandbox: input.isSandbox ?? false,
-        video_settings: {
-          quality: "high",
-          encoding: "H264",
-        },
-        ...(input.llmConfigurationId && {
-          llm_configuration_id: input.llmConfigurationId,
-        }),
-      }),
+      body: JSON.stringify(payload),
     });
   }
 
