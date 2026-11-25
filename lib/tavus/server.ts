@@ -118,8 +118,7 @@ export async function createCoachPal(): Promise<string> {
       pipeline_mode: "full",
       default_face_id: getFaceId(),
       languages: ["en", "zh"],
-      greeting:
-        "Hi. Thanks for meeting. What did you want to walk me through today?",
+      greeting: buildCoachV2Greeting("neutral", "en"),
     }),
   });
 

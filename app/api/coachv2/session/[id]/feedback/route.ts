@@ -42,15 +42,24 @@ export async function POST(request: Request, context: RouteContext) {
     const transcript = await waitForTranscript(conversationId);
     const dialogue = dialogueTranscript(transcript);
 
-    if (dialogue.length === 0) {
+    // Count agent and customer turns separately
+    const agentTurns = dialogue.filter(
+      (entry) => entry.role === "user" || entry.role === "human",
+    ).length;
+    const customerTurns = dialogue.filter(
+      (entry) => entry.role === "assistant",
+    ).length;
+
+    // Need at least one turn from each side (excluding just the greeting)
+    if (dialogue.length === 0 || agentTurns === 0 || customerTurns <= 1) {
       return NextResponse.json({
         conversationId,
         transcript: dialogue,
         feedback: null,
         message:
           body.language === "zh"
-            ? "未捕捉到对话内容。通话中可能已有口头反馈；书面评分需要本次会话中的代理人与客户对话。"
-            : "No spoken dialogue was captured. Spoken coaching may still have been given on the call; written feedback needs agent and customer turns from the session.",
+            ? "对话不足以进行评估。需要代理人和客户之间的实质性交流才能生成反馈。"
+            : "Insufficient dialogue for evaluation. A meaningful exchange between agent and customer is required to generate feedback.",
       });
     }
 

@@ -13,6 +13,10 @@ data/*
 coverage/
 test-results/
 .DS_Store
+*.pptx
+
+# Local debug helpers
+scripts/get-transcript.ts
 
 # Credentials and certificate material
 *.pem

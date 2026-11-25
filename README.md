@@ -1,208 +1,150 @@
-# Capco LiveAvatar Interviews (MVP1)
+# Capco Avatar Demo
 
-AI-powered **LiveAvatar video** interviewer platform for hiring. Recruiters create interviews from job descriptions, share candidate links, run full LiveAvatar sessions (realtime video avatar + voice), and review scored insights.
+Next.js demos for Capco hiring interviews, insurance coaching, and risk profiling — powered by **LiveAvatar** (HeyGen) and **Tavus** conversational video.
 
-## Features
+| Product | Path | Provider |
+|---------|------|----------|
+| Hiring interviews | `/`, `/call/[id]` | LiveAvatar FULL Mode |
+| Avatar studio | `/studio` | LiveAvatar |
+| Coach v2 (insurance role-play) | `/coachv2` | Tavus CVI |
+| Risk Profile Questionnaire | `/rpq` | LiveAvatar |
 
-- Generate tailored interview questions from JD text or PDF
-- Multi-persona AI interviewers (empathy, exploration, rapport, speaking speed)
-- One-click shareable candidate links
-- **LiveAvatar FULL Mode** interviews — video avatar + lip-sync + voice (not phone-only)
-- Capco avatar studio demo at `/studio` (your previous Wealth & Asset Management experience)
-- Post-call analysis: overall score, question scores, communication metrics, tab-switch tracking
-- Dashboard with stats and charts
-- Local JSON file store (no Supabase); auth deferred
+Local JSON persistence under `data/` (no database). Auth is deferred.
 
-## Setup
+---
+
+## Install
+
+**Requirements:** Node.js 20+, npm, API keys for LiveAvatar and/or Tavus, plus an OpenAI-compatible LLM key for question generation and scoring.
 
 ```bash
+git clone https://github.com/alancapco/avatardemo.git
+cd avatardemo
 npm install
 cp .env.example .env.local
-# Fill LIVEAVATAR_* and CUSTOM_LLM_*
+```
+
+Edit `.env.local` (see [Env](#env)). Then:
+
+```bash
+# LiveAvatar (interviews, studio, RPQ)
 npm run liveavatar:setup
-npm run liveavatar:setup-llm   # optional but recommended for voice replies
+npm run liveavatar:setup-llm    # optional; custom LLM on LiveAvatar voice
+npm run liveavatar:setup-rpq    # once, for the RPQ demo context
+
+# Dev server
 npm run dev
 ```
 
-Open `http://localhost:3000`.
-
-## Recruiter flow
-
-1. **Dashboard** `/` — interviews, response counts, averages
-2. **Interviewers** `/interviewers` — configure AI personas
-3. **New interview** `/interviews/new` — paste/upload JD → generate questions → save
-4. **Interview detail** `/interviews/[id]` — copy share link, review candidates
-5. **Response report** `/responses/[id]` — scores, communication chart, transcript
-
-## Candidate flow
-
-1. Open `/call/[interviewId]`
-2. Enter name → start LiveAvatar interview → allow mic
-3. Meet the **video avatar** interviewer (same Capco studio stage as `/studio`)
-4. End interview → transcript saved and analysed
-
-With `LIVEAVATAR_SANDBOX=true`, the lobby warns that short pauses may occur. After each ~1-minute segment the candidate continues to the next question; the full transcript is submitted only when the interview finishes (or they end early).
-
-Demo the original avatar anytime at `/studio`.
-
-## Risk Profile Questionnaire demo
-
-`/rpq` is a full LiveAvatar video assessment, with an English-speaking avatar
-and bilingual English / Traditional Chinese answer controls. It contains the
-approved 12-question RPQ, deterministic 12–60 scoring, and these risk bands:
-
-| Score | Risk tolerance | Investment risk profile |
-| --- | --- | --- |
-| 12–21 | Low | Conservative |
-| 22–30 | Low-Medium | Stable |
-| 31–40 | Medium | Balance |
-| 41–50 | Medium-High | Growth |
-| 51–60 | High | Aggressive |
-
-Start its reusable LiveAvatar context once after adding your API key:
+Open [http://localhost:3000](http://localhost:3000).
 
 ```bash
-npm run liveavatar:setup-rpq
-```
-
-The assessment shows an education-only disclaimer before start. It collects no
-name, email, or contact data. Completed anonymous assessments (including
-answers and score) are stored locally in `data/rpq-assessments.json`. This demo
-does not provide investment advice; results require review by a qualified
-adviser.
-
-Spoken answers are matched against only the visible option IDs. Common answers
-and option numbers are handled locally without a model call. The configured
-low-cost `CUSTOM_LLM_MODEL` is used only as an optional constrained fallback
-for otherwise ambiguous speech.
-
-Run the regression suite with:
-
-```bash
+npm run typecheck
 npm test
+npm run build
 ```
 
-## Data store
+---
 
-JSON files under `data/` (gitignored):
+## Env
 
-- `interviewers.json`
-- `interviews.json`
-- `responses.json`
-- `feedback.json`
+Copy from [`.env.example`](.env.example):
 
-Default interviewer personas seed automatically on first read.
+| Variable | Used by |
+|----------|---------|
+| `LIVEAVATAR_API_KEY`, `LIVEAVATAR_AVATAR_ID` | Interviews, studio, RPQ |
+| `LIVEAVATAR_CONTEXT_ID` | Studio demo context |
+| `LIVEAVATAR_RPQ_CONTEXT_ID` | RPQ (from `setup-rpq`) |
+| `LIVEAVATAR_SANDBOX` | `true` ≈ 1 min free sessions (segmented interviews/RPQ) |
+| `LIVEAVATAR_LLM_*` | Optional custom LLM on LiveAvatar |
+| `CUSTOM_LLM_*` | Question gen, interview analysis, Coach feedback |
+| `TAVUS_API_KEY`, `TAVUS_PAL_ID`, `TAVUS_FACE_ID` | Coach v2 |
+
+Never commit `.env.local`.
+
+---
 
 ## Architecture
 
-| Piece | Role |
-|-------|------|
-| `lib/store/*` | Atomic JSON persistence |
-| `lib/openai/client.ts` | Question gen + analysis via `CUSTOM_LLM_*` |
-| `lib/liveavatar/server.ts` | Session tokens + per-interview contexts |
-| `lib/prompts/*` | LLM prompt templates |
-| `app/api/*` | REST APIs |
-| `components/interview-call.tsx` | Candidate LiveAvatar session + sandbox segments + tab tracking |
-
-On interview create, the API builds a LiveAvatar **context** from the questions + persona and stores `liveAvatarContextId`. Candidate sessions use that context (not the global demo context). When `LIVEAVATAR_SANDBOX=true`, each question runs in a short ephemeral context instead (see sandbox segments below).
-
-### System overview
-
 ```mermaid
 flowchart TB
-  subgraph recruiters [Recruiter]
-    Dashboard["Dashboard /"]
-    Interviewers["Interviewers"]
-    NewInterview["New interview"]
-    Detail["Interview detail"]
-    Report["Response report"]
+  subgraph clients [Browser]
+    Dash["Dashboard /"]
+    Call["/call interview"]
+    Studio["/studio"]
+    Coach["/coachv2"]
+    Rpq["/rpq"]
   end
 
-  subgraph candidates [Candidate]
-    Call["/call/interviewId"]
-    Studio["/studio demo"]
-    Rpq["/rpq assessment"]
-  end
-
-  subgraph nextApp [Next.js app]
+  subgraph nextApp [Next.js App Router]
     Api["app/api/*"]
-    Store["lib/store JSON files"]
+    Store["lib/store JSON"]
     Prompts["lib/prompts"]
-    LaServer["lib/liveavatar/server"]
+    LaLib["lib/liveavatar"]
+    TavusLib["lib/tavus"]
+    Llm["lib/openai"]
   end
 
-  subgraph external [External]
+  subgraph external [External APIs]
     LiveAvatar["LiveAvatar FULL Mode"]
-    CustomLlm["CUSTOM_LLM API"]
+    Tavus["Tavus CVI"]
+    CustomLlm["CUSTOM_LLM"]
   end
 
-  Dashboard --> Api
-  Interviewers --> Api
-  NewInterview --> Api
-  Detail --> Api
-  Report --> Api
+  Dash --> Api
   Call --> Api
+  Call --> LiveAvatar
   Studio --> Api
+  Studio --> LiveAvatar
+  Coach --> Api
+  Coach --> Tavus
   Rpq --> Api
+  Rpq --> LiveAvatar
 
   Api --> Store
   Api --> Prompts
-  Api --> LaServer
-  Api --> CustomLlm
-  LaServer --> LiveAvatar
-  Call --> LiveAvatar
-  Studio --> LiveAvatar
-  Rpq --> LiveAvatar
+  Api --> LaLib
+  Api --> TavusLib
+  Api --> Llm
+  LaLib --> LiveAvatar
+  TavusLib --> Tavus
+  Llm --> CustomLlm
 ```
 
 ### Components
 
 ```mermaid
 flowchart LR
-  subgraph ui [UI components]
+  subgraph ui [UI]
+    Dashboard["dashboard.tsx"]
     InterviewCall["interview-call.tsx"]
     AvatarStudio["avatar-studio.tsx"]
-    RpqAssessment["rpq/rpq-assessment.tsx"]
-    DashboardCmp["dashboard.tsx"]
-    NewInterviewPage["new-interview-page.tsx"]
+    CoachV2["coach-v2.tsx"]
+    RpqUi["rpq/rpq-assessment.tsx"]
+    NewInterview["new-interview-page.tsx"]
+    Report["response-report-page.tsx"]
   end
 
-  subgraph apis [API routes]
-    SessionApi["POST /api/session"]
-    InterviewsApi["/api/interviews"]
-    ResponsesApi["/api/responses"]
-    GenerateApi["/api/generate-questions"]
-    AnalyzeApi["analysis routes"]
+  subgraph apis [API]
+    Session["POST /api/session"]
+    Interviews["/api/interviews"]
+    Responses["/api/responses"]
+    CoachApi["/api/coachv2/*"]
+    GenQ["/api/generate-questions"]
   end
 
-  subgraph libs [Libraries]
-    InterviewCtx["prompts/interview-context"]
-    LaClient["liveavatar/server"]
-    Repo["store/repositories"]
-    OpenAI["openai/client"]
-  end
-
-  InterviewCall --> SessionApi
-  InterviewCall --> InterviewsApi
-  InterviewCall --> ResponsesApi
-  AvatarStudio --> SessionApi
-  RpqAssessment --> SessionApi
-  NewInterviewPage --> GenerateApi
-  NewInterviewPage --> InterviewsApi
-  DashboardCmp --> InterviewsApi
-
-  SessionApi --> InterviewCtx
-  SessionApi --> LaClient
-  InterviewsApi --> InterviewCtx
-  InterviewsApi --> LaClient
-  InterviewsApi --> Repo
-  ResponsesApi --> Repo
-  ResponsesApi --> AnalyzeApi
-  GenerateApi --> OpenAI
-  AnalyzeApi --> OpenAI
+  Dashboard --> Interviews
+  NewInterview --> GenQ
+  NewInterview --> Interviews
+  InterviewCall --> Session
+  InterviewCall --> Responses
+  AvatarStudio --> Session
+  RpqUi --> Session
+  CoachV2 --> CoachApi
+  Report --> Responses
 ```
 
-### Data flow — interview create and call
+### Data flow — hiring interview
 
 ```mermaid
 sequenceDiagram
@@ -211,51 +153,120 @@ sequenceDiagram
   participant Store as JSON store
   participant LA as LiveAvatar
   participant Candidate
-  participant Call as InterviewCall
 
   Recruiter->>Api: POST /api/interviews
-  Api->>Api: buildInterviewContext
   Api->>LA: createContext
-  Api->>Store: save interview + liveAvatarContextId
-  Api-->>Recruiter: interview + share link
+  Api->>Store: interview + liveAvatarContextId
 
-  Candidate->>Call: open /call/interviewId
-  Call->>Api: GET /api/interviews/id
-  Api-->>Call: interview + isSandbox
-
-  alt Sandbox LIVEAVATAR_SANDBOX=true
-    loop One question per ~1 min segment
-      Call->>Api: POST /api/session segmentIndex coveredSummary
-      Api->>Api: buildInterviewSegmentContext
-      Api->>LA: createContext ephemeral
-      Api->>LA: createSessionToken
-      Api-->>Call: sessionToken + segment meta
-      Call->>LA: LiveAvatarSession start
-      Note over Call,LA: SESSION_STOPPED or soft wrap ~50s
-      Call->>Call: segment-break UI if questions remain
-    end
-  else Production
-    Call->>Api: POST /api/session interviewId
-    Api->>LA: createSessionToken with stored context
-    Api-->>Call: sessionToken
-    Call->>LA: single LiveAvatarSession
-  end
-
-  Call->>Api: POST /api/responses transcript
-  Api->>Store: save response
-  Api->>Api: run analysis
-  Api-->>Call: response id
+  Candidate->>Api: POST /api/session
+  Api->>LA: createSessionToken
+  Candidate->>LA: LiveAvatarSession start
+  Note over Candidate,LA: Sandbox: one question per ~1 min segment
+  Candidate->>Api: POST /api/responses
+  Api->>Store: transcript + analysis
 ```
 
-### Sandbox duration segments
+### Data flow — Coach v2
 
-Free LiveAvatar sandbox sessions last about **one minute**. Interviews and RPQ split work across short sessions so the platform kill does not discard progress:
+```mermaid
+sequenceDiagram
+  participant Agent as Agent browser
+  participant Api as Next API
+  participant Tavus as Tavus CVI
+  participant Llm as CUSTOM_LLM
 
-- **Interviews**: one primary question per segment; transcript accumulates; continue screen between segments; submit once at the end
-- **RPQ**: three questions per segment (four sessions total)
-- Soft wrap nudge at ~50s; reactive `SESSION_STOPPED` still drives the continue path
-- Non-sandbox (`LIVEAVATAR_SANDBOX=false`) keeps a single uninterrupted session
+  Agent->>Api: POST /api/coachv2/session
+  Api->>Tavus: create conversation
+  Api-->>Agent: conversation URL
+  Agent->>Tavus: embedded video call
+  Agent->>Api: POST .../feedback
+  Api->>Tavus: fetch transcript
+  Api->>Llm: score dialogue
+  Api-->>Agent: written feedback
+```
 
-## Env
+---
 
-See [`.env.example`](.env.example). `CUSTOM_LLM_API_KEY` is required for question generation and analysis even if LiveAvatar custom LLM is not registered.
+## Product flows
+
+### Recruiter (LiveAvatar interviews)
+
+1. **Dashboard** `/` — interviews and averages  
+2. **Interviewers** `/interviewers` — AI personas  
+3. **New interview** `/interviews/new` — JD → questions → save  
+4. **Detail** `/interviews/[id]` — share link, candidates  
+5. **Report** `/responses/[id]` — scores, transcript  
+
+### Candidate
+
+1. Open `/call/[interviewId]` → name → start  
+2. Speak with the video avatar  
+3. End (or finish sandbox segments) → transcript analysed  
+
+With `LIVEAVATAR_SANDBOX=true`, each question is a short session with a continue screen between segments.
+
+### Coach v2 (Tavus)
+
+1. Open `/coachv2`  
+2. Pick emotion, brief, language → start role-play as insurance agent  
+3. End call → written feedback from transcript + LLM  
+
+### RPQ
+
+`/rpq` — 12-question bilingual assessment, LiveAvatar facilitator, deterministic 12–60 scoring. Sandbox uses four short sessions (3 questions each).
+
+| Score | Band |
+|-------|------|
+| 12–21 | Conservative |
+| 22–30 | Stable |
+| 31–40 | Balance |
+| 41–50 | Growth |
+| 51–60 | Aggressive |
+
+---
+
+## Project layout
+
+```
+app/                  App Router pages + API routes
+components/           UI (interview, studio, coach, RPQ, dashboard)
+lib/
+  liveavatar/         LiveAvatar HTTP client
+  tavus/              Tavus CVI client
+  openai/             CUSTOM_LLM client
+  prompts/            Prompt builders
+  analysis/           Interview scoring pipeline
+  store/              Atomic JSON persistence
+  rpq/                RPQ questionnaire + scoring
+scripts/              liveavatar:setup* helpers
+types/                Shared Zod/types
+data/                 Local JSON (gitignored)
+```
+
+| Piece | Role |
+|-------|------|
+| `lib/store/*` | Atomic JSON files |
+| `lib/liveavatar/server.ts` | Session tokens + contexts |
+| `lib/tavus/server.ts` | PAL + conversations + transcripts |
+| `lib/prompts/*` | Interview, Coach, RPQ prompts |
+| `components/interview-call.tsx` | Candidate call + sandbox segments |
+| `components/coach-v2.tsx` | Tavus coach UI |
+
+---
+
+## Data store
+
+JSON under `data/` (gitignored):
+
+- `interviewers.json`
+- `interviews.json`
+- `responses.json`
+- `rpq-assessments.json`
+
+Default interviewer personas seed on first read.
+
+---
+
+## License
+
+Private Capco demo. Not for production deployment without auth, secrets management, and a proper datastore.

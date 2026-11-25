@@ -19,7 +19,7 @@ export function AppNav({ active }: { active?: string }) {
         <div className="brand-divider" aria-hidden />
         <div className="brand-copy">
           <p className="eyebrow">Hiring</p>
-          <h1>LiveAvatar Interviews</h1>
+          <h1>Avatar demos</h1>
         </div>
       </div>
       <nav className="app-nav" aria-label="Primary">

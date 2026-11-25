@@ -3,7 +3,6 @@ import type {
   CreateInterviewerInput,
   CreateInterviewInput,
   CreateResponseInput,
-  Feedback,
   Interview,
   Interviewer,
   InterviewResponse,
@@ -20,7 +19,6 @@ import {
 const INTERVIEWERS = "interviewers";
 const INTERVIEWS = "interviews";
 const RESPONSES = "responses";
-const FEEDBACK = "feedback";
 const RPQ_ASSESSMENTS = "rpq-assessments";
 
 const DEFAULT_INTERVIEWERS: Omit<Interviewer, "id" | "createdAt" | "updatedAt">[] =
@@ -185,29 +183,6 @@ export async function updateResponse(
     updatedAt: new Date().toISOString(),
   };
   return upsertItem(RESPONSES, updated);
-}
-
-export async function createFeedback(input: {
-  interviewId: string;
-  responseId?: string;
-  rating: number;
-  comment: string;
-}) {
-  const feedback: Feedback = {
-    id: nanoid(10),
-    interviewId: input.interviewId,
-    responseId: input.responseId,
-    rating: input.rating,
-    comment: input.comment,
-    createdAt: new Date().toISOString(),
-  };
-  return upsertItem(FEEDBACK, feedback);
-}
-
-export async function listFeedback(interviewId?: string) {
-  const all = await readCollection<Feedback>(FEEDBACK);
-  if (!interviewId) return all;
-  return all.filter((item) => item.interviewId === interviewId);
 }
 
 export async function createRpqAssessment(

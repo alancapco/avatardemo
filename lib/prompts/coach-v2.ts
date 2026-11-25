@@ -15,8 +15,8 @@ export const COACH_V2_EMOTIONS = [
 export type CoachV2Emotion = (typeof COACH_V2_EMOTIONS)[number];
 
 export const COACH_V2_LANGUAGES = [
-  { id: "en", label: "English", tavusCode: "en" },
-  { id: "zh", label: "中文 (Mandarin)", tavusCode: "zh" },
+  { id: "en", label: "English" },
+  { id: "zh", label: "中文 (Mandarin)" },
 ] as const;
 
 export type CoachV2Language = (typeof COACH_V2_LANGUAGES)[number]["id"];

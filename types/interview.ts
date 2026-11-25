@@ -87,15 +87,6 @@ export const responseSchema = z.object({
   updatedAt: z.string(),
 });
 
-export const feedbackSchema = z.object({
-  id: z.string(),
-  responseId: z.string().optional(),
-  interviewId: z.string(),
-  rating: z.number().min(1).max(5),
-  comment: z.string(),
-  createdAt: z.string(),
-});
-
 export type InterviewerTraits = z.infer<typeof interviewerTraitsSchema>;
 export type Interviewer = z.infer<typeof interviewerSchema>;
 export type InterviewQuestion = z.infer<typeof interviewQuestionSchema>;
@@ -105,7 +96,6 @@ export type QuestionScore = z.infer<typeof questionScoreSchema>;
 export type CommunicationMetrics = z.infer<typeof communicationMetricsSchema>;
 export type Analysis = z.infer<typeof analysisSchema>;
 export type InterviewResponse = z.infer<typeof responseSchema>;
-export type Feedback = z.infer<typeof feedbackSchema>;
 
 export type CreateInterviewerInput = {
   name: string;

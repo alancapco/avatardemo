@@ -149,25 +149,11 @@ export async function POST(request: Request) {
     };
     if (voiceId) avatarPersona.voice_id = voiceId;
 
-    console.log("[Session API] Creating session token with:", {
-      avatarId,
-      contextId,
-      isSandbox,
-      hasLlmConfig: !!llmConfigurationId,
-      mode: isRpq ? "rpq" : isDemo ? "demo" : "interview",
-    });
-
     const session = await client.createSessionToken({
       avatarId,
       avatarPersona,
       isSandbox,
       llmConfigurationId,
-    });
-
-    console.log("[Session API] Session created:", {
-      hasToken: !!session.session_token,
-      sessionId: session.session_id,
-      tokenLength: session.session_token?.length,
     });
 
     return NextResponse.json({
